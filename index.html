@@ -105,9 +105,19 @@
     display: unset !important;
     }
     .home-screen {
+      position: relative;
       max-width: 700px;
       margin: auto;
       height: 393px;
+    }
+    .fullSceen {
+    position: absolute;
+    width: 15px;
+    height: 15px;
+    border: 1px solid #ffffff;
+    top: 15%;
+    right: 8%;
+    cursor: pointer;
     }
     .home-screen iframe{
       width: 100%;
@@ -125,6 +135,7 @@
     }
     span.playBTN img {
       width: 60px;
+      height: 45px;
     }
     span.sarver img{
       width: 50px;
@@ -237,6 +248,7 @@
   }
   .min-sarver {
     padding: 0 0 20px 0;
+    width: 100%;
   }
   .dot {
     width: 8px;
@@ -416,6 +428,79 @@
     }
   }
   </style>
+
+  <style>
+    :root {
+      --bg: #000;
+      --btn-bg: rgba(255,255,255,0.08);
+      --btn-fg: #fff;
+      --accent: #06f;
+    }
+    html,body {
+      height: 100%;
+      margin: 0;
+      color: #fff;
+      -webkit-font-smoothing:antialiased;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* container that becomes fullscreen */
+    .player-wrap {
+      inset: 0;
+      place-items: center;
+      touch-action: manipulation;
+    }
+
+    /* responsive iframe that fills the container */
+    .player-iframe {
+      width: 100vw;
+      height: 100vh;
+      border: 0;
+      display: block;
+      max-width: none;
+      max-height: none;
+      background: #000;
+    }
+
+    /* overlay controls (enter/exit fullscreen) */
+    .controls {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      display: flex;
+      gap: 8px;
+      z-index: 10010;
+    }
+
+    .btn {
+      background: var(--btn-bg);
+      color: var(--btn-fg);
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 14px;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      cursor: pointer;
+    }
+
+    /* small note for user instructions (hidden when fullscreen) */
+    .note {
+      position: absolute;
+      bottom: 18px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.45);
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 13px;
+    }
+
+    /* landscape helper: rotate content if user physically rotated device but viewport didn't update */
+    @media (orientation: landscape) {
+      /* nothing needed — iframe already fills viewport */
+    }
+  </style>
 </head>
 
 <body class="light">
@@ -515,8 +600,8 @@
     <div class="ip-match"></div>
       
   <!----home screen----->
-  <div class="home-screen">
-        <iframe sandbox="allow-scripts allow-same-origin allow-presentation" allowfullscreen frameborder="0" height="100%" id="soop_player_video" src="https://vod.sooplive.co.kr/player/168766727/embed?showChat=false&amp;autoPlay=true&amp;mutePlay=true" width="100%" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="no-referrer-when-downgrade" loading="eager" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"></iframe>
+  <div class="player-wrap home-screen" id="playerWrap">
+    <iframe sandbox="allow-scripts allow-same-origin allow-presentation" frameborder="0" height="100%" id="soop_player_video" src="https://vod.sooplive.co.kr/player/168766727/embed?showChat=false&amp;autoPlay=true&amp;mutePlay=true" width="100%" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="no-referrer-when-downgrade" loading="eager" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation" allowFullScreen></iframe>
 
     <div class="min-sarver"></div>
 
@@ -569,6 +654,154 @@
 
   <!-- Firebase App Logic -->
   <script type="module">
+    function fullSceense(){
+      if(window.innerWidth <= 350){
+        document.querySelector(".player-wrap.home-screen").innerHTML += `
+        <div class="controls" id="controls">
+          <button class="btn" id="enterFs">Enter Fullscreen</button>
+          <button class="btn" id="exitFs" style="display:none">Exit Fullscreen</button>
+        </div>
+        <div class="note" id="note">Tip: rotate your phone to landscape, then tap "Enter Fullscreen".</div>
+        `;
+
+        (function () {
+          const playerWrap = document.getElementById('playerWrap');
+          const iframe = document.getElementById('soop_player_video');
+          const enterBtn = document.getElementById('enterFs');
+          const exitBtn = document.getElementById('exitFs');
+          const note = document.getElementById('note');
+
+          // Utility: are we in fullscreen?
+          function isFullscreen() {
+            return !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+          }
+
+          // Try enter fullscreen on the wrapper (more browsers allow that)
+          async function enterFullscreen() {
+            // Some browsers (iOS Safari) don't support requestFullscreen on arbitrary elements.
+            try {
+              if (playerWrap.requestFullscreen) {
+                await playerWrap.requestFullscreen();
+              } else if (playerWrap.webkitRequestFullscreen) { // legacy WebKit
+                playerWrap.webkitRequestFullscreen();
+              } else if (playerWrap.msRequestFullscreen) {
+                playerWrap.msRequestFullscreen();
+              } else {
+                // last resort: open iframe in top (not recommended) or just expand visually
+                console.warn('Fullscreen API not supported; expanding to viewport only.');
+              }
+
+              // Try to lock orientation to landscape if allowed (must be in fullscreen and user gesture)
+              try {
+                if (screen.orientation && screen.orientation.lock) {
+                  await screen.orientation.lock('landscape').catch(e => {
+                    // ignored: many browsers disallow orientation lock
+                    console.warn('Orientation lock failed:', e);
+                  });
+                } else if (screen.lockOrientationUniversal) {
+                  // older API
+                  try { screen.lockOrientationUniversal('landscape'); } catch(e){ }
+                }
+              } catch (err) {
+                console.warn('Orientation lock error:', err);
+              }
+            } catch (err) {
+              console.error('enterFullscreen error:', err);
+            } finally {
+              updateControls();
+            }
+          }
+
+          async function exitFullscreen() {
+            try {
+              if (document.exitFullscreen) {
+                await document.exitFullscreen();
+              } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+              } else if (document.msExitFullscreen) {
+                document.msExitFullscreen();
+              }
+              // try unlocking orientation
+              try {
+                if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
+              } catch (e) { /* ignore */ }
+            } catch (err) {
+              console.warn('exitFullscreen error:', err);
+            } finally {
+              updateControls();
+            }
+          }
+
+          function updateControls() {
+            if (isFullscreen()) {
+              enterBtn.style.display = 'none';
+              exitBtn.style.display = '';
+              note.style.display = 'none';
+            } else {
+              enterBtn.style.display = '';
+              exitBtn.style.display = 'none';
+              note.style.display = '';
+            }
+          }
+
+          // attempt to auto-enter fullscreen if user rotated to landscape and they previously pressed a button
+          window.addEventListener('orientationchange', () => {
+            // Update layout; try to auto fullscreen only if user is already permitted (some browsers block)
+            setTimeout(() => {
+              updateControls();
+              // if landscape and not fullscreen, we can prompt user visually or try a gentle request
+              if (window.matchMedia('(orientation: landscape)').matches && !isFullscreen()) {
+                note.textContent = 'Now in landscape — tap "Enter Fullscreen" for immersive view.';
+                note.style.display = '';
+              }
+            }, 300);
+          });
+
+          // show hint for mobile
+          function isMobile() {
+            return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent || '');
+          }
+
+          if (!isMobile()) {
+            note.textContent = 'Click "Enter Fullscreen" for fullscreen on desktop.';
+          }
+
+          enterBtn.addEventListener('click', async () => {
+            // user gesture: good time to request fullscreen + orientation lock
+            await enterFullscreen();
+          });
+
+          exitBtn.addEventListener('click', async () => {
+            await exitFullscreen();
+          });
+
+          // update control state on fullscreenchange
+          document.addEventListener('fullscreenchange', updateControls);
+          document.addEventListener('webkitfullscreenchange', updateControls);
+          document.addEventListener('msfullscreenchange', updateControls);
+
+          // When iframe content resizes / loads, ensure it fills viewport
+          iframe.addEventListener('load', () => {
+            // if iframe's content is a video player, sometimes browsers provide their own fullscreen controls.
+            // nothing special needed here; keep iframe styled to fill viewport.
+            updateControls();
+          });
+
+          // Accessibility: allow double-tap on iframe area to toggle fullscreen (user gesture)
+          let lastTap = 0;
+          playerWrap.addEventListener('touchend', async (e) => {
+            const now = Date.now();
+            if (now - lastTap < 300) {
+              // double-tap detected
+              if (!isFullscreen()) await enterFullscreen();
+              else await exitFullscreen();
+            }
+            lastTap = now;
+          });
+          updateControls();
+        })();
+      }
+    }fullSceense();
     import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
     import { getDatabase, ref, onValue, get, child, set} from "https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js";
 
@@ -936,7 +1169,7 @@
               document.querySelector("iframe#soop_player_video").src = '';
               document.querySelector(".ip-match").innerHTML = `
                 <a href="https://mysprotss.blogspot.com" target="_blank">
-                  <img src="https://raw.githubusercontent.com/hmarahman12/Live-Cricket/refs/heads/mastar/img/Click.png" alt="">
+                  <img src="./img/click.png" alt="">
                 </a>`;
               document.querySelector(".home-screen").style.display = 'none';
 
@@ -1257,12 +1490,42 @@
       init();
     })();
     
+
+    function noElements(){
+      // Disable right-click
+      document.addEventListener("contextmenu", function(e) {
+        e.preventDefault();
+      });
+
+      // Disable drag events
+      document.addEventListener("dragstart", function(e) {
+        e.preventDefault();
+      });
+
+      // Disable copy & cut
+      document.addEventListener("copy", function(e) {
+        e.preventDefault();
+      });
+      document.addEventListener("cut", function(e) {
+        e.preventDefault();
+      });
+
+      // Block all common inspect/shortcut keys
+      document.addEventListener("keydown", function(e) {
+        // F12
+        if (e.key === "F12") e.preventDefault();
+
+        // Ctrl+Shift+I, J, C, K, E (Inspect, Console, Picker, Firefox shortcuts)
+        if (e.ctrlKey && e.shiftKey && ["I", "J", "C", "K", "E"].includes(e.key.toUpperCase())) {
+          e.preventDefault();
+        }
+
+        // Ctrl+U (View Source), Ctrl+S (Save page), Ctrl+P (Print)
+        if (e.ctrlKey && ["U", "S", "P"].includes(e.key.toUpperCase())) {
+          e.preventDefault();
+        }
+      });
+    }noElements();
   </script>
 </body>
 </html>
-
-
-
-
-
-
